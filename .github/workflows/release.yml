@@ -1,0 +1,129 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+    branches: [develop]
+  workflow_dispatch:
+    inputs:
+      pre-release:
+        description: "Mark as pre-release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+env:
+  RING_CLI_REPO: https://github.com/RingKoAI/Ring-CLI.git
+
+jobs:
+  # ── Compute version string ────────────────────────────────────────────────
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
+    steps:
+      - id: meta
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            # develop push → commit hash version
+            HASH="${GITHUB_SHA::7}"
+            echo "version=0.1.0-${HASH}" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Build per-platform ────────────────────────────────────────────────────
+  build:
+    needs: resolve-version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            label: linux-amd64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            label: windows-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            label: darwin-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            label: darwin-x86_64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout ring-app
+        uses: actions/checkout@v4
+
+      - name: Checkout ring-cli
+        uses: actions/checkout@v4
+        with:
+          repository: RingKoAI/Ring-CLI
+          path: ../ring-cli
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri
+            ../ring-cli
+
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install pnpm dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build ring-cli sidecar
+        env:
+          RING_CLI_DIR: ${{ github.workspace }}/../ring-cli
+        run: node scripts/build-sidecar.mjs --release
+
+      - name: Patch version
+        shell: bash
+        run: |
+          VERSION="${{ needs.resolve-version.outputs.version }}"
+          # Update package.json + tauri.conf.json
+          npx json -I -f package.json -e 'this.version="'$VERSION'"'
+          npx json -I -f src-tauri/tauri.conf.json -e 'this.version="'$VERSION'"'
+          # Update Cargo.toml version
+          sed -i.bak 's/^version = ".*"/version = "'$VERSION'"/' src-tauri/Cargo.toml || true
+          # Windows needs different sed
+          if [ -f src-tauri/Cargo.toml.bak ]; then rm src-tauri/Cargo.toml.bak; fi
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ needs.resolve-version.outputs.version }}
+          releaseName: "RingApp v${{ needs.resolve-version.outputs.version }}"
+          releaseBody: "See the assets below to download and install."
+          releaseDraft: false
+          prerelease: ${{ needs.resolve-version.outputs.is_prerelease }}
+          args: --target ${{ matrix.target }}

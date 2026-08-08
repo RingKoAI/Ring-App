@@ -9,7 +9,7 @@ import { resolve, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
-const RING_CLI_DIR = resolve(__dirname, "../../ring-cli")
+const RING_CLI_DIR = process.env.RING_CLI_DIR || resolve(__dirname, "../../ring-cli")
 const SIDECAR_DIR = resolve(__dirname, "../src-tauri/binaries")
 
 const isRelease = process.argv.includes("--release")
