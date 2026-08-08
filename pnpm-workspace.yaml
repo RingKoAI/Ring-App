@@ -1,13 +1,6 @@
 allowBuilds:
-  '-': true
-  /: true
-  '@': true
-  a: true
-  c: true
-  i: true
-  l: true
-  p: true
-  r: true
-  s: true
-  t: true
-  u: true
+  esbuild: set this to true or false
+onlyBuiltDependencies:
+  - "@tauri-apps/cli"
+  - esbuild
+verifyDepsBeforeRun: false
