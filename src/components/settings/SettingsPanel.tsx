@@ -1,21 +1,20 @@
 import { useState, useEffect, useRef } from "react"
 import { Button } from "../ui/button"
-import { Input } from "../ui/input"
-import { Separator } from "../ui/separator"
 import { ScrollArea } from "../ui/scroll-area"
-import { X, Wifi, WifiOff, Server, Palette, Info, ChevronRight, Languages, Bot, AlertTriangle } from "lucide-react"
+import {
+  X, Server, Palette, Info, Bot, ChevronRight,
+  Braces, Eye, Save, CheckCircle2, AlertCircle, FolderOpen,
+} from "lucide-react"
+import { cn } from "../../lib/utils"
 import { useI18n } from "../../hooks/useI18n"
-import { useTheme, type ThemeMode } from "../../hooks/useTheme"
-import { LANGUAGES } from "../../i18n"
 import type { Transport } from "../chat/types"
-import { AgentSettings, type ProviderConfig } from "./AgentSettings"
+import { GeneralTab } from "./GeneralTab"
+import { AppearanceTab } from "./AppearanceTab"
+import { AboutTab } from "./AboutTab"
+import { ProvidersTab } from "./ProvidersTab"
+import type { UseRingConfigReturn } from "../../hooks/useRingConfig"
 
-interface ServerProvider {
-  id: string
-  name: string
-  default_model: string
-  active_model: string
-}
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface Settings {
   httpUrl: string
@@ -30,57 +29,58 @@ interface SettingsPanelProps {
   settings: Settings
   onSave: (s: Settings) => void
   rcaConnected: boolean
-  providerConfigs: ProviderConfig[]
-  onSaveProviders: (configs: ProviderConfig[]) => void
-  serverProvider?: ServerProvider | null
-  transport?: Transport
+  ringConfig: UseRingConfigReturn
 }
 
-type SettingsTab = "general" | "agent" | "appearance" | "about"
+type SettingsTab = "general" | "providers" | "appearance" | "about"
+type EditMode = "visual" | "json"
 
-export function SettingsPanel({ open, onClose, settings, onSave, rcaConnected, providerConfigs, onSaveProviders, serverProvider, transport }: SettingsPanelProps) {
-  const { t, lang, setLang } = useI18n()
-  const { mode: themeMode, setTheme } = useTheme()
+// ── Component ────────────────────────────────────────────────────────────────
+
+export function SettingsPanel({
+  open,
+  onClose,
+  settings,
+  onSave,
+  rcaConnected,
+  ringConfig,
+}: SettingsPanelProps) {
+  const { t } = useI18n()
   const [tab, setTab] = useState<SettingsTab>("general")
+  const [editMode, setEditMode] = useState<EditMode>("visual")
+
+  // Connection form state
   const [url, setUrl] = useState(settings.rcaUrl)
   const [token, setToken] = useState(settings.rcaToken)
   const [httpUrl, setHttpUrl] = useState(settings.httpUrl)
   const [transportMode, setTransportMode] = useState<Transport>(settings.transport)
 
+  // JSON edit state
+  const [jsonDraft, setJsonDraft] = useState("")
+  const [jsonError, setJsonError] = useState<string | null>(null)
+  const [jsonSynced, setJsonSynced] = useState(true)
+
   const modalRef = useRef<HTMLDivElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
 
+  // ── Focus trap ──
   useEffect(() => {
     if (!open) return
-
     const active = document.activeElement
     previousFocusRef.current = active instanceof HTMLElement ? active : null
-
     const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
     modalRef.current?.querySelectorAll<HTMLElement>(selector)[0]?.focus()
 
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose()
-        return
-      }
+      if (e.key === "Escape") { onClose(); return }
       if (e.key !== "Tab") return
-
       const els = modalRef.current?.querySelectorAll<HTMLElement>(selector)
       if (!els || els.length === 0) return
-
       const first = els[0]
       const last = els[els.length - 1]
-
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault()
-        first.focus()
-      }
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
     }
-
     document.addEventListener("keydown", handleKeyDown)
     return () => {
       document.removeEventListener("keydown", handleKeyDown)
@@ -88,12 +88,62 @@ export function SettingsPanel({ open, onClose, settings, onSave, rcaConnected, p
     }
   }, [open, onClose])
 
+  // ── Sync JSON draft ──
+  useEffect(() => {
+    if (editMode === "json") {
+      const data = getTabJsonData(tab, ringConfig)
+      setJsonDraft(JSON.stringify(data, null, 2))
+      setJsonError(null)
+      setJsonSynced(true)
+    }
+  }, [editMode, tab])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── JSON validation ──
+  useEffect(() => {
+    if (editMode !== "json" || jsonSynced) return
+    try { JSON.parse(jsonDraft); setJsonError(null) }
+    catch (e) { setJsonError(String(e).replace(/^SyntaxError:\s*/, "")) }
+  }, [jsonDraft, editMode, jsonSynced])
+
+  function applyJsonDraft() {
+    if (jsonError) return false
+    try {
+      const parsed = JSON.parse(jsonDraft)
+      applyTabJsonData(tab, parsed, ringConfig)
+      setJsonSynced(true)
+      return true
+    } catch { return false }
+  }
+
+  async function handleSave() {
+    if (editMode === "json" && !jsonSynced) {
+      if (!applyJsonDraft()) return
+    }
+    await ringConfig.save()
+    onSave({ httpUrl, rcaUrl: url, rcaToken: token, transport: transportMode })
+  }
+
+  function handleClose() {
+    if (ringConfig.dirty || hasTransportChanges()) ringConfig.reload()
+    onClose()
+  }
+
+  function hasTransportChanges() {
+    return url !== settings.rcaUrl ||
+      token !== settings.rcaToken ||
+      httpUrl !== settings.httpUrl ||
+      transportMode !== settings.transport
+  }
+
   const tabs: { id: SettingsTab; label: string; icon: typeof Server }[] = [
-    { id: "general", label: t("settings", "general") as string, icon: Server },
-    { id: "agent", label: t("settings", "agent") as string, icon: Bot },
+    { id: "general",    label: t("settings", "general") as string,    icon: Server },
+    { id: "providers",  label: t("settings", "providers") as string,  icon: Bot },
     { id: "appearance", label: t("settings", "appearance") as string, icon: Palette },
-    { id: "about", label: t("settings", "about") as string, icon: Info },
+    { id: "about",      label: t("settings", "about") as string,      icon: Info },
   ]
+
+  const showModeToggle = tab === "providers" || tab === "general"
+  const dirty = ringConfig.dirty || (editMode === "json" && !jsonSynced) || hasTransportChanges()
 
   if (!open) return null
 
@@ -102,219 +152,223 @@ export function SettingsPanel({ open, onClose, settings, onSave, rcaConnected, p
       ref={modalRef}
       role="dialog"
       aria-modal="true"
-      aria-labelledby="settings-panel-title"
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex bg-black/20"
+      aria-labelledby="settings-title"
+      onClick={handleClose}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm"
     >
       <div
         onClick={e => e.stopPropagation()}
-        className="mx-auto flex w-full max-w-2xl flex-col bg-background shadow-2xl sm:my-8 sm:rounded-xl sm:border sm:shadow-2xl"
+        className="flex h-[85vh] max-h-[calc(100vh-2rem)] w-full min-w-0 max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
       >
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h2 id="settings-panel-title" className="text-sm font-semibold">{t("settings", "title") as string}</h2>
-          <Button variant="ghost" size="icon" className="size-7" onClick={onClose}>
-            <X className="size-4" />
-          </Button>
+        {/* ── Top bar ── */}
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
+          <div className="flex items-center gap-3">
+            <h2 id="settings-title" className="text-base font-semibold">{t("settings", "title") as string}</h2>
+            {ringConfig.error && (
+              <span className="flex items-center gap-1 text-[11px] text-destructive">
+                <AlertCircle className="size-3" />
+                {ringConfig.error}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {showModeToggle && <ModeToggle mode={editMode} onChange={setEditMode} />}
+            <Button variant="ghost" size="icon" className="size-7" onClick={handleClose}>
+              <X className="size-4" />
+            </Button>
+          </div>
         </div>
 
-        <div className="flex flex-1 flex-col overflow-hidden sm:flex-row">
-          <nav className="flex shrink-0 gap-1 border-b p-2 sm:w-44 sm:flex-col sm:border-b-0 sm:border-r">
+        {/* ── Body ── */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Sidebar nav */}
+          <nav className="flex w-48 shrink-0 flex-col gap-0.5 border-r border-border bg-muted/30 p-2">
             {tabs.map(tabItem => (
               <button
                 key={tabItem.id}
                 onClick={() => setTab(tabItem.id)}
-                className={`flex items-center gap-2 rounded-lg px-3 py-2 text-left text-xs transition-colors ${
+                className={cn(
+                  "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors",
                   tab === tabItem.id
-                    ? "bg-accent text-accent-foreground font-medium"
-                    : "text-muted-foreground hover:bg-accent/50"
-                }`}
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
               >
-                <tabItem.icon className="size-4" />
-                <span className="flex-1">{tabItem.label}</span>
-                <ChevronRight className="size-3 sm:hidden" />
+                <tabItem.icon className="size-4 shrink-0" />
+                <span className="flex-1 truncate">{tabItem.label}</span>
+                {tab === tabItem.id && <ChevronRight className="size-3 shrink-0" />}
               </button>
             ))}
+
+            {/* Config path footer */}
+            <div className="mt-auto space-y-1 border-t border-border/50 pt-2">
+              {ringConfig.ringHome && (
+                <div className="flex items-center gap-1.5 px-2 text-[10px] text-muted-foreground/70">
+                  <FolderOpen className="size-2.5 shrink-0" />
+                  <span className="truncate" title={ringConfig.ringHome}>{ringConfig.ringHome}</span>
+                </div>
+              )}
+            </div>
           </nav>
 
-          <ScrollArea className="flex-1 p-4">
-            {tab === "general" && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-sm font-medium">{t("settings", "connection") as string}</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{t("settings", "connectionDesc") as string}</p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">{t("settings", "transportLabel") as string}</label>
-                  <div className="grid gap-2">
-                    {(["sdk", "http", "rca"] as Transport[]).map(tr => (
-                      <button
-                        key={tr}
-                        onClick={() => setTransportMode(tr)}
-                        className={`flex items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
-                          transportMode === tr ? "border-primary bg-primary/5" : "border-border hover:bg-accent/50"
-                        }`}
-                      >
-                        <div className={`mt-0.5 size-4 shrink-0 rounded-full border-2 ${transportMode === tr ? "border-primary" : "border-muted-foreground/40"}`}>
-                          {transportMode === tr && <div className="m-auto mt-[3px] size-1.5 rounded-full bg-primary" />}
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-[13px] font-medium">{t("transport", tr)}</div>
-                          <div className="text-[11px] text-muted-foreground">{t("transport", tr === "sdk" ? "sdkDesc" : tr === "http" ? "httpDesc" : "rcaDesc")}</div>
-                          {tr === "rca" && (
-                            <div className="mt-1.5 flex items-start gap-1.5 rounded-md bg-amber-500/10 px-2 py-1 text-[10.5px] leading-snug text-amber-600 dark:text-amber-400">
-                              <AlertTriangle className="mt-px size-3 shrink-0" />
-                              <span>{t("transport", "rcaWarning")}</span>
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 rounded-lg border px-3 py-2">
-                  {rcaConnected ? <Wifi className="size-4 text-emerald-500" /> : <WifiOff className="size-4 text-muted-foreground" />}
-                  <span className="text-xs">{rcaConnected ? t("settings", "connected") as string : t("settings", "disconnected") as string}</span>
-                </div>
-
-                {transportMode === "http" && (
-                  <div className="space-y-1.5 rounded-lg border border-border/60 bg-muted/30 p-3">
-                    <label className="text-xs text-muted-foreground">{t("transport", "httpUrl") as string}</label>
-                    <Input value={httpUrl} onChange={e => setHttpUrl(e.target.value)} placeholder={t("transport", "httpUrlPh") as string} className="text-xs" />
-                  </div>
+          {/* Content */}
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <ScrollArea className="flex-1">
+              <div className="p-5">
+                {editMode === "json" && showModeToggle ? (
+                  <JsonEditor
+                    value={jsonDraft}
+                    onChange={v => { setJsonDraft(v); setJsonSynced(false) }}
+                    error={jsonError}
+                    path={tab === "providers" ? "providers" : "config"}
+                  />
+                ) : (
+                  renderTabContent()
                 )}
+              </div>
+            </ScrollArea>
 
-                {transportMode === "rca" && (
-                  <div className="space-y-3 rounded-lg border border-border/60 bg-muted/30 p-3">
-                    <div className="flex items-start gap-2 rounded-md bg-amber-500/10 px-2.5 py-2 text-[11px] leading-snug text-amber-600 dark:text-amber-400">
-                      <AlertTriangle className="mt-px size-3.5 shrink-0" />
-                      <span>{t("transport", "rcaWarning")}</span>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs text-muted-foreground">{t("settings", "serverUrl") as string}</label>
-                      <Input value={url} onChange={e => setUrl(e.target.value)} placeholder="ws://host:8080" className="text-xs" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs text-muted-foreground">{t("settings", "authToken") as string}</label>
-                      <Input value={token} onChange={e => setToken(e.target.value)} type="password" placeholder="optional" className="text-xs" />
-                    </div>
-                  </div>
+            {/* Footer */}
+            <div className="flex shrink-0 items-center justify-between border-t border-border px-5 py-3">
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                {dirty ? (
+                  <span className="flex items-center gap-1 text-amber-500">
+                    <span className="size-1.5 rounded-full bg-amber-400" />
+                    Unsaved changes
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <CheckCircle2 className="size-3 text-emerald-400" />
+                    {t("settings", "jsonSaved") as string}
+                  </span>
                 )}
-
+              </div>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" onClick={handleClose}>
+                  {t("settings", "cancel") as string}
+                </Button>
                 <Button
-                  className="w-full"
                   size="sm"
-                  onClick={() => onSave({ httpUrl, rcaUrl: url, rcaToken: token, transport: transportMode })}
+                  onClick={handleSave}
+                  disabled={!dirty || (editMode === "json" && !!jsonError)}
+                  className="gap-1.5"
                 >
-                  {rcaConnected ? t("settings", "reconnect") as string : t("settings", "connect") as string}
+                  <Save className="size-3.5" />
+                  {t("settings", "save") as string}
                 </Button>
               </div>
-            )}
-
-            {tab === "agent" && (
-              <div className="space-y-5">
-                {serverProvider && (
-                  <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
-                    <div className="flex items-center gap-2">
-                      <Bot className="size-4 text-primary" />
-                      <span className="text-[13px] font-medium">{t("settings", "agent") as string} · {t("settings", "server") as string}</span>
-                      <span className="ml-auto rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-500">{t("settings", "activeBadge") as string}</span>
-                    </div>
-                    <div className="mt-2.5 space-y-1.5 text-xs">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">{t("settings", "providerLabel") as string}</span>
-                        <span className="font-medium">{serverProvider.name}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">{t("settings", "idLabel") as string}</span>
-                        <span className="font-mono text-[11px] text-muted-foreground">{serverProvider.id}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">{t("settings", "modelLabel") as string}</span>
-                        <span className="font-medium">{serverProvider.active_model}</span>
-                      </div>
-                    </div>
-                    <p className="mt-2 text-[11px] text-muted-foreground/70">
-                      {transport === "http"
-                        ? t("settings", "configuredOnServer") as string
-                        : t("settings", "managedByServer") as string}
-                    </p>
-                  </div>
-                )}
-                <AgentSettings configs={providerConfigs} onSave={onSaveProviders} />
-              </div>
-            )}
-            {tab === "appearance" && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-sm font-medium">{t("settings", "appearance") as string}</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{t("settings", "appearanceDesc") as string}</p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">{t("settings", "theme") as string}</label>
-                  <div className="flex gap-2">
-                    {(["system", "light", "dark"] as ThemeMode[]).map(th => (
-                      <Button
-                        key={th}
-                        variant={themeMode === th ? "default" : "outline"}
-                        size="sm"
-                        className="flex-1 text-xs"
-                        onClick={() => setTheme(th)}
-                      >
-                        {t("settings", th) as string}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs text-muted-foreground">
-                    <Languages className="mr-1 inline size-3" />
-                    {t("settings", "language") as string}
-                  </label>
-                  <select
-                    value={lang}
-                    onChange={e => setLang(e.target.value as any)}
-                    className="flex h-9 w-full rounded-lg border border-input bg-background px-3 py-1 text-xs shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                  >
-                    {LANGUAGES.map(l => (
-                      <option key={l.id} value={l.id}>{l.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
-
-            {tab === "about" && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-sm font-medium">{t("settings", "about") as string}</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">{t("settings", "aboutDesc") as string}</p>
-                </div>
-
-                <div className="space-y-2 text-xs text-muted-foreground">
-                  <div className="flex justify-between">
-                    <span>{t("settings", "version") as string}</span>
-                    <span className="text-foreground">0.1.0</span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between">
-                    <span>{t("settings", "runtime") as string}</span>
-                    <span className="text-foreground">Tauri + React</span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between">
-                    <span>{t("settings", "license") as string}</span>
-                    <span className="text-foreground">AGPL-3.0</span>
-                  </div>
-                </div>
-              </div>
-            )}
-          </ScrollArea>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   )
+
+  function renderTabContent() {
+    switch (tab) {
+      case "general":
+        return <GeneralTab
+          rcaConnected={rcaConnected}
+          transportMode={transportMode}
+          setTransportMode={setTransportMode}
+          httpUrl={httpUrl}
+          setHttpUrl={setHttpUrl}
+          url={url}
+          setUrl={setUrl}
+          token={token}
+          setToken={setToken}
+          settingsPath={ringConfig.settingsPath}
+          ringHome={ringConfig.ringHome}
+        />
+      case "providers":
+        return <ProvidersTab ringConfig={ringConfig} />
+      case "appearance":
+        return <AppearanceTab />
+      case "about":
+        return <AboutTab />
+    }
+  }
+}
+
+// ── Mode toggle ──────────────────────────────────────────────────────────────
+
+function ModeToggle({ mode, onChange }: { mode: EditMode; onChange: (m: EditMode) => void }) {
+  const { t } = useI18n()
+  return (
+    <div className="flex items-center rounded-lg border border-border/70 bg-muted/30 p-0.5">
+      <button
+        onClick={() => onChange("visual")}
+        className={cn(
+          "flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+          mode === "visual" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        <Eye className="size-3" />
+        {t("settings", "visualMode") as string}
+      </button>
+      <button
+        onClick={() => onChange("json")}
+        className={cn(
+          "flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+          mode === "json" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        <Braces className="size-3" />
+        {t("settings", "jsonMode") as string}
+      </button>
+    </div>
+  )
+}
+
+// ── JSON editor ──────────────────────────────────────────────────────────────
+
+function JsonEditor({
+  value,
+  onChange,
+  error,
+  path,
+}: {
+  value: string
+  onChange: (v: string) => void
+  error: string | null
+  path: string
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-[11px] text-muted-foreground">
+          ~/.ring/config/settings.jsonc → "{path}"
+        </span>
+        {error && (
+          <span className="flex items-center gap-1 text-[11px] text-destructive">
+            <AlertCircle className="size-3" />
+            {error}
+          </span>
+        )}
+      </div>
+      <textarea
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        spellCheck={false}
+        rows={22}
+        className="w-full rounded-lg border border-border bg-[var(--ring-code-bg)] p-3 font-mono text-[12px] leading-5 text-foreground outline-none focus:border-ring/60 focus:ring-1 focus:ring-ring/30"
+      />
+    </div>
+  )
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function getTabJsonData(tab: SettingsTab, ringConfig: UseRingConfigReturn): unknown {
+  if (tab === "providers") return ringConfig.config.providers ?? {}
+  const { providers, ...rest } = ringConfig.config
+  return rest
+}
+
+function applyTabJsonData(tab: SettingsTab, parsed: unknown, ringConfig: UseRingConfigReturn): void {
+  if (tab === "providers") {
+    ringConfig.patchConfig({ providers: parsed as Record<string, import("../../types/config").ProviderEntry> })
+  } else {
+    ringConfig.patchConfig({ ...(parsed as Record<string, unknown>), providers: ringConfig.config.providers })
+  }
 }
