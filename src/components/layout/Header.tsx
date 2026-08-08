@@ -15,6 +15,7 @@ export function Header({ model, onSettings, onToggleSidebar, sidebarOpen, onNew 
   const { t } = useI18n()
   return (
     <header className="flex h-[var(--ring-toolbar-h)] shrink-0 items-center justify-between border-b border-border/70 bg-background/80 px-2.5 backdrop-blur">
+      {/* ── Left: sidebar toggle + model pill ── */}
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
@@ -26,14 +27,17 @@ export function Header({ model, onSettings, onToggleSidebar, sidebarOpen, onNew 
           <PanelLeft className="size-4" />
         </Button>
         {model ? (
-          <Button variant="ghost" size="sm" className="gap-1 px-2 text-[13px] font-medium">
-            {model}
-            <ChevronDown className="size-3.5 text-muted-foreground" />
-          </Button>
+          <span className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-[var(--ring-overlay)] px-2.5 py-1 text-[12px] font-medium">
+            <span className="size-1.5 rounded-full bg-emerald-400" />
+            <span className="max-w-[200px] truncate">{model}</span>
+            <ChevronDown className="size-3 text-muted-foreground" />
+          </span>
         ) : (
           <span className="px-2 text-[13px] font-medium text-muted-foreground">{t("app", "title")}</span>
         )}
       </div>
+
+      {/* ── Right: actions ── */}
       <div className="flex items-center gap-0.5">
         {onNew && (
           <Button variant="ghost" size="icon" className="size-8" onClick={onNew} title={t("header", "newSession") as string}>

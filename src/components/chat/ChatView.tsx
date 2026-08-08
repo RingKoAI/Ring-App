@@ -1,8 +1,8 @@
-import { useRef, useEffect, useCallback } from "react"
+import { useRef, useEffect, useCallback, useState } from "react"
 import { ThreadTurn } from "./MessageBubble"
-import { Composer } from "./Composer"
+import { Composer, type ComposerEditingState } from "./Composer"
 import { useI18n } from "../../hooks/useI18n"
-import { CatIcon } from "../CatIcon"
+import { RingIcon } from "../RingIcon"
 import type { Message, Mode, ModelOption } from "./types"
 
 interface ChatViewProps {
@@ -17,6 +17,7 @@ interface ChatViewProps {
   onModelChange?: (id: string) => void
   mode?: Mode
   onModeChange?: (mode: Mode) => void
+  onEditMessage?: (messageId: string, newText: string, mode: Mode) => void
 }
 
 export function ChatView({
@@ -31,10 +32,16 @@ export function ChatView({
   onModelChange,
   mode = "build",
   onModeChange,
+  onEditMessage,
 }: ChatViewProps) {
   const { t } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
   const pinnedToBottom = useRef(true)
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null)
+
+  const editingState: ComposerEditingState | null = editingMessage
+    ? { messageId: editingMessage.id, text: editingMessage.content }
+    : null
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current
@@ -57,12 +64,16 @@ export function ChatView({
         {hasTurns ? (
           <div className="pb-6">
             {messages.map(msg => (
-              <ThreadTurn key={msg.id} message={msg} />
+              <ThreadTurn
+                key={msg.id}
+                message={msg}
+                onEdit={msg.role === "user" && onEditMessage ? (m) => setEditingMessage(m) : undefined}
+              />
             ))}
             {loading && <StreamingPlaceholder label={t("thread", "thinking") as string} />}
           </div>
         ) : (
-          <EmptyState rcaConnected={rcaConnected} />
+          <EmptyState rcaConnected={rcaConnected} onPick={onSend} mode={mode} />
         )}
       </div>
       <Composer
@@ -77,6 +88,8 @@ export function ChatView({
         mode={mode}
         onModeChange={onModeChange}
         loading={loading}
+        editingState={editingState}
+        onCancelEdit={() => setEditingMessage(null)}
       />
     </div>
   )
@@ -93,31 +106,37 @@ function StreamingPlaceholder({ label }: { label: string }) {
   )
 }
 
-function EmptyState({ rcaConnected }: { rcaConnected?: boolean }) {
+function EmptyState({ rcaConnected, onPick, mode }: { rcaConnected?: boolean; onPick?: (text: string, mode: Mode) => void; mode: Mode }) {
   const { t } = useI18n()
   const suggestions = [
-    { title: t("empty", "s1Title"), hint: t("empty", "s1Hint") },
-    { title: t("empty", "s2Title"), hint: t("empty", "s2Hint") },
-    { title: t("empty", "s3Title"), hint: t("empty", "s3Hint") },
-    { title: t("empty", "s4Title"), hint: t("empty", "s4Hint") },
+    { title: t("empty", "s1Title"), hint: t("empty", "s1Hint"), prompt: t("empty", "s1Prompt") },
+    { title: t("empty", "s2Title"), hint: t("empty", "s2Hint"), prompt: t("empty", "s2Prompt") },
+    { title: t("empty", "s3Title"), hint: t("empty", "s3Hint"), prompt: t("empty", "s3Prompt") },
+    { title: t("empty", "s4Title"), hint: t("empty", "s4Hint"), prompt: t("empty", "s4Prompt") },
   ]
   return (
-    <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-      <div className="mb-5 flex size-12 items-center justify-center rounded-xl bg-foreground text-background">
-        <CatIcon className="size-7" />
+    <div className="flex h-full w-full flex-col items-center justify-center gap-4 px-6 text-center">
+      <div className="flex size-16 items-center justify-center">
+        <RingIcon className="size-16 text-primary" />
       </div>
-      <h2 className="text-xl font-semibold tracking-tight">{t("empty", "title")}</h2>
-      <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">{t("empty", "desc")}</p>
-      <div className="mt-8 grid w-full max-w-xl grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="space-y-1.5">
+        <h2 className="text-lg font-medium tracking-tight text-foreground">{t("empty", "title")}</h2>
+        <p className="mx-auto max-w-md text-sm text-muted-foreground">{t("empty", "desc")}</p>
+      </div>
+      <div className="mt-4 grid w-full max-w-xl grid-cols-1 gap-2 sm:grid-cols-2">
         {suggestions.map(s => (
-          <div key={s.title as string} className="rounded-xl border border-border/70 bg-[var(--ring-overlay)] p-3 text-left transition-colors hover:border-border">
+          <button
+            key={s.title as string}
+            onClick={() => onPick?.(s.prompt as string, mode)}
+            className="rounded-xl border border-border/60 bg-card p-3 text-left transition-all hover:border-border hover:shadow-sm active:scale-[0.99]"
+          >
             <div className="text-[13px] font-medium">{s.title}</div>
-            <div className="text-[11.5px] text-muted-foreground">{s.hint}</div>
-          </div>
+            <div className="mt-0.5 text-[11.5px] text-muted-foreground">{s.hint}</div>
+          </button>
         ))}
       </div>
       {!rcaConnected && (
-        <p className="mt-6 text-[11.5px] text-muted-foreground/70">
+        <p className="mt-4 text-[11.5px] text-muted-foreground/70">
           {t("empty", "notConnected")} <span className="font-medium text-muted-foreground">{t("header", "settings")}</span> {t("empty", "notConnectedHint")}
         </p>
       )}

@@ -1,31 +1,34 @@
 import { useState, useCallback, useEffect } from "react"
 import "./App.css"
+import { X } from "lucide-react"
 import { Sidebar } from "./components/layout/Sidebar"
 import { Header } from "./components/layout/Header"
 import { ChatView } from "./components/chat/ChatView"
 import { SettingsPanel } from "./components/settings/SettingsPanel"
-import type { ProviderConfig } from "./components/settings/AgentSettings"
+import { EngineStartupOverlay } from "./components/startup/EngineStartupOverlay"
+import { WelcomeDialog } from "./components/startup/WelcomeDialog"
 import type { Mode, Transport } from "./components/chat/types"
 import { useChat } from "./hooks/useChat"
 import { useI18n } from "./hooks/useI18n"
+import { useRingConfig } from "./hooks/useRingConfig"
+
+type StartupPhase = "welcome" | "main"
 
 function App() {
   const { t } = useI18n()
+  const ringConfig = useRingConfig()
+  const [startupPhase, setStartupPhase] = useState<StartupPhase>(() => {
+    try { return localStorage.getItem("ring-welcomed") === "true" ? "main" : "welcome" } catch { return "welcome" }
+  })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [warnDismissed, setWarnDismissed] = useState(false)
   const [mode, setMode] = useState<Mode>("build")
   const [model, setModel] = useState<string>(() => { try { return localStorage.getItem("ring-model") || "" } catch { return "" } })
   const [transport, setTransport] = useState<Transport>(() => { try { return (localStorage.getItem("ring-transport") as Transport) || "sdk" } catch { return "sdk" } })
   const [httpUrl, setHttpUrl] = useState(() => { try { return localStorage.getItem("ring-http-url") || "http://127.0.0.1:8765" } catch { return "http://127.0.0.1:8765" } })
   const [rcaUrl, setRcaUrl] = useState(() => { try { return localStorage.getItem("rca_url") || "" } catch { return "" } })
   const [rcaToken, setRcaToken] = useState(() => { try { return localStorage.getItem("rca_token") || "" } catch { return "" } })
-  const [providerConfigs, setProviderConfigs] = useState<ProviderConfig[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("provider_configs") || "[]")
-    } catch {
-      return []
-    }
-  })
 
   const chat = useChat({
     transport,
@@ -143,21 +146,47 @@ function App() {
     chat.connect()
   }
 
-  function handleSaveProviders(configs: ProviderConfig[]) {
-    localStorage.setItem("provider_configs", JSON.stringify(configs))
-    setProviderConfigs(configs)
-  }
+  const handleEditMessage = useCallback(
+    (_messageId: string, newText: string, sendMode: Mode) => {
+      chat.clear()
+      chat.send(newText, sendMode)
+    },
+    [chat],
+  )
 
   const activeModelLabel = chat.models.find(m => m.id === model)?.label
   const connected = chat.status === "connected"
 
+  // ── Startup routing: welcome gate ──
+  if (startupPhase === "welcome") {
+    return (
+      <>
+        <WelcomeDialog
+          onGetStarted={() => {
+            try { localStorage.setItem("ring-welcomed", "true") } catch { /* ignore */ }
+            setStartupPhase("main")
+            setSettingsOpen(true)
+          }}
+        />
+      </>
+    )
+  }
+
+  // ── Startup routing: engine connecting overlay ──
+  // Only show overlay while actively connecting or briefly on ready (fade-out).
+  // On error/disconnected, fall through to main UI so the user sees the banner + retry.
+  const showStartupOverlay = chat.status === "connecting" || chat.status === "connected"
+  const enginePhase = chat.status === "connected" ? "ready" : "connecting"
+
   return (
-    <div className="flex h-dvh overflow-hidden bg-background text-foreground">
+    <div className="relative flex h-dvh overflow-hidden bg-background text-foreground">
+      {showStartupOverlay && <EngineStartupOverlay phase={enginePhase} />}
       <Sidebar
         sessions={chat.sessions}
         activeSession={chat.activeSessionId ?? ""}
         onSelect={(id) => chat.loadSession(id)}
         onNew={() => chat.clear()}
+        onDelete={undefined}
         rcaConnected={connected}
         open={sidebarOpen}
         onToggle={() => setSidebarOpen(v => !v)}
@@ -170,24 +199,45 @@ function App() {
           sidebarOpen={sidebarOpen}
           onNew={() => chat.clear()}
         />
-        {chat.localError === "not_found" && transport === "sdk" && (
-          <div className="flex items-center justify-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-[12px] text-amber-500">
-            {t("transport", "notFound")}
+        {chat.localError === "not_found" && transport === "sdk" && !warnDismissed && (
+          <div className="flex items-center justify-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-[12px] text-amber-600 dark:text-amber-400">
+            <span>{t("transport", "notFound")}</span>
+            <button
+              className="rounded p-0.5 transition-colors hover:bg-amber-500/20"
+              onClick={() => setWarnDismissed(true)}
+              title="Dismiss"
+            >
+              <X className="size-3.5" />
+            </button>
           </div>
         )}
-        {chat.status === "error" && transport === "rca" && (
+        {chat.status === "error" && transport === "rca" && !warnDismissed && (
           <div className="flex items-center justify-center gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-1.5 text-[12px] text-destructive">
             <span>{t("rca", "error")}</span>
             <button className="underline hover:no-underline" onClick={() => chat.connect()}>
               {t("app", "retry")}
             </button>
+            <button
+              className="rounded p-0.5 transition-colors hover:bg-destructive/20"
+              onClick={() => setWarnDismissed(true)}
+              title="Dismiss"
+            >
+              <X className="size-3.5" />
+            </button>
           </div>
         )}
-        {chat.status === "error" && transport === "http" && (
+        {chat.status === "error" && transport === "http" && !warnDismissed && (
           <div className="flex items-center justify-center gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-1.5 text-[12px] text-destructive">
             <span>{t("transport", "unreachable")}</span>
             <button className="underline hover:no-underline" onClick={() => chat.connect()}>
               {t("app", "retry")}
+            </button>
+            <button
+              className="rounded p-0.5 transition-colors hover:bg-destructive/20"
+              onClick={() => setWarnDismissed(true)}
+              title="Dismiss"
+            >
+              <X className="size-3.5" />
             </button>
           </div>
         )}
@@ -203,6 +253,7 @@ function App() {
           onModelChange={handleModelChange}
           mode={mode}
           onModeChange={setMode}
+          onEditMessage={handleEditMessage}
         />
       </div>
       <SettingsPanel
@@ -211,10 +262,7 @@ function App() {
         settings={{ httpUrl, rcaUrl, rcaToken, transport }}
         onSave={handleSaveSettings}
         rcaConnected={connected}
-        providerConfigs={providerConfigs}
-        onSaveProviders={handleSaveProviders}
-        serverProvider={chat.serverProvider}
-        transport={transport}
+        ringConfig={ringConfig}
       />
     </div>
   )
