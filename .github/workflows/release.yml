@@ -5,11 +5,6 @@ on:
     tags: ["v*"]
     branches: [develop]
   workflow_dispatch:
-    inputs:
-      pre-release:
-        description: "Mark as pre-release"
-        type: boolean
-        default: true
 
 permissions:
   contents: write
@@ -18,23 +13,48 @@ env:
   RING_CLI_REPO: https://github.com/RingKoAI/Ring-CLI.git
 
 jobs:
-  # ── Compute version string ────────────────────────────────────────────────
+  # ── Resolve version + auto-tag develop pushes ──────────────────────────────
   resolve-version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
       is_prerelease: ${{ steps.meta.outputs.is_prerelease }}
     steps:
-      - id: meta
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version + tag
+        id: meta
         run: |
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            # Tag push (v1.2.3) → strip v prefix
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           else
-            # develop push → commit hash version
+            # develop push → use short commit hash as both tag and version
             HASH="${GITHUB_SHA::7}"
-            echo "version=0.1.0-${HASH}" >> "$GITHUB_OUTPUT"
+            echo "version=$HASH" >> "$GITHUB_OUTPUT"
+            echo "tag=$HASH" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create tag (develop pushes only)
+        if: github.ref_type != 'tag'
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          # Skip if tag already exists
+          if git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists, skipping"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Created and pushed tag $TAG"
           fi
 
   # ── Build per-platform ────────────────────────────────────────────────────
@@ -106,24 +126,35 @@ jobs:
 
       - name: Patch version
         shell: bash
+        env:
+          VERSION: ${{ needs.resolve-version.outputs.version }}
         run: |
-          VERSION="${{ needs.resolve-version.outputs.version }}"
-          # Update package.json + tauri.conf.json
-          npx json -I -f package.json -e 'this.version="'$VERSION'"'
-          npx json -I -f src-tauri/tauri.conf.json -e 'this.version="'$VERSION'"'
-          # Update Cargo.toml version
-          sed -i.bak 's/^version = ".*"/version = "'$VERSION'"/' src-tauri/Cargo.toml || true
-          # Windows needs different sed
-          if [ -f src-tauri/Cargo.toml.bak ]; then rm src-tauri/Cargo.toml.bak; fi
+          # package.json
+          node -e "
+            const fs = require('fs');
+            for (const f of ['package.json', 'src-tauri/tauri.conf.json']) {
+              const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+              j.version = process.env.VERSION;
+              fs.writeFileSync(f, JSON.stringify(j, null, 2) + '\n');
+            }
+          "
+          # Cargo.toml
+          sed -i 's/^version = ".*"/version = "'"$VERSION"'"/' src-tauri/Cargo.toml
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ needs.resolve-version.outputs.version }}
-          releaseName: "RingApp v${{ needs.resolve-version.outputs.version }}"
-          releaseBody: "See the assets below to download and install."
+          tagName: ${{ needs.resolve-version.outputs.tag }}
+          releaseName: "RingApp ${{ needs.resolve-version.outputs.tag }}"
+          releaseBody: |
+            ## RingApp ${{ needs.resolve-version.outputs.tag }}
+
+            **Version**: `${{ needs.resolve-version.outputs.version }}`
+            **Pre-release**: ${{ needs.resolve-version.outputs.is_prerelease }}
+
+            Download the appropriate installer for your platform below.
           releaseDraft: false
           prerelease: ${{ needs.resolve-version.outputs.is_prerelease }}
           args: --target ${{ matrix.target }}
