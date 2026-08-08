@@ -2,13 +2,145 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/cat.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ring</title>
+    <style>
+      /* ── Theme pre-injection (prevent dark mode flash) ── */
+      :root { --splash-bg: oklch(0.99 0.001 260); --splash-fg: oklch(0.18 0.003 260); }
+      .splash-dark { --splash-bg: oklch(0.16 0.002 260); --splash-fg: oklch(0.97 0 0); }
+
+      /* ── Splash layout ── */
+      .splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+        background: var(--splash-bg);
+        color: var(--splash-fg);
+        transition: opacity 0.3s ease;
+      }
+      .splash-gradient {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(360deg, var(--splash-transparent, rgba(47,143,245,0)) 5.5%, var(--splash-glow, rgba(47,143,245,0.04)) 100%);
+      }
+      .splash-logo {
+        position: relative;
+        width: 72px;
+        height: 72px;
+      }
+      .splash-logo-glow {
+        position: absolute;
+        inset: -20px;
+        border-radius: 50%;
+        background: var(--splash-glow, rgba(47, 143, 245, 0.15));
+        filter: blur(24px);
+        animation: splash-pulse 2s ease-in-out infinite;
+      }
+      .splash-logo svg {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      .splash-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      .splash-subtitle {
+        font-size: 0.8rem;
+        opacity: 0.6;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      .splash-bar {
+        width: 180px;
+        height: 3px;
+        border-radius: 9999px;
+        background: rgba(47, 143, 245, 0.12);
+        overflow: hidden;
+        position: relative;
+      }
+      .splash-bar-shimmer {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(90deg, transparent, var(--splash-shimmer, rgba(47, 143, 245, 0.6)), transparent);
+        background-size: 200% 100%;
+        animation: splash-shimmer 1.4s ease-in-out infinite;
+      }
+
+      @keyframes splash-pulse {
+        0%, 100% { opacity: 0.5; transform: scale(1); }
+        50% { opacity: 0.9; transform: scale(1.08); }
+      }
+      @keyframes splash-shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+      }
+    </style>
+    <script>
+      // Theme pre-injection
+      (function () {
+        // ── Accent color ──
+        var accent = null;
+        try { accent = localStorage.getItem("ring-accent"); } catch (e) {}
+        if (!accent) accent = "blue";
+        document.documentElement.setAttribute("data-accent", accent);
+
+        // ── Accent hue → hex color map for splash ──
+        var splashColors = {
+          blue:   { grad1: "#2f8ff5", grad2: "#4da1ff", glow: "rgba(47,143,245,0.15)", shimmer: "rgba(47,143,245,0.6)" },
+          green:  { grad1: "#1ba87a", grad2: "#34c094", glow: "rgba(27,168,122,0.15)", shimmer: "rgba(27,168,122,0.6)" },
+          violet: { grad1: "#8b46e8", grad2: "#a25fef", glow: "rgba(139,70,232,0.15)", shimmer: "rgba(139,70,232,0.6)" },
+          rose:   { grad1: "#e8455e", grad2: "#f06b80", glow: "rgba(232,69,94,0.15)", shimmer: "rgba(232,69,94,0.6)" },
+          orange: { grad1: "#e89120", grad2: "#f5ab48", glow: "rgba(232,145,32,0.15)", shimmer: "rgba(232,145,32,0.6)" },
+          cyan:   { grad1: "#1c9bc4", grad2: "#3eb4d8", glow: "rgba(28,155,196,0.15)", shimmer: "rgba(28,155,196,0.6)" },
+        };
+        var c = splashColors[accent] || splashColors.blue;
+        var root = document.documentElement.style;
+        root.setProperty("--splash-grad1", c.grad1);
+        root.setProperty("--splash-grad2", c.grad2);
+        root.setProperty("--splash-glow", c.glow);
+        root.setProperty("--splash-shimmer", c.shimmer);
+
+        // ── Dark mode ──
+        var stored = null;
+        try { stored = localStorage.getItem("ring-theme"); } catch (e) {}
+        var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+        var isDark = stored === "dark" || ((stored === null || stored === "system") && prefersDark);
+        if (isDark) document.documentElement.classList.add("splash-dark");
+      })();
+    </script>
   </head>
 
   <body>
-    <div id="root"></div>
+    <!-- Static pre-React splash — replaced when React mounts -->
+    <div id="root">
+      <div class="splash">
+        <div class="splash-gradient"></div>
+        <div class="splash-logo">
+          <div class="splash-logo-glow"></div>
+          <svg viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="splashRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="var(--splash-grad1, #2f8ff5)"/>
+                <stop offset="100%" stop-color="var(--splash-grad2, #4da1ff)"/>
+              </linearGradient>
+            </defs>
+            <circle cx="128" cy="128" r="68" stroke="url(#splashRingGrad)" stroke-width="24" stroke-linecap="round" stroke-dasharray="320 107" transform="rotate(-52 128 128)"/>
+            <circle cx="182" cy="74" r="20" fill="var(--splash-grad2, #4da1ff)"/>
+          </svg>
+        </div>
+        <div class="splash-title">Ring</div>
+        <div class="splash-bar"><div class="splash-bar-shimmer"></div></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

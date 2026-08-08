@@ -6,7 +6,7 @@
 
 (目前项目正在处于初始阶段，版本号在发布正式版本之前一直保持大版本为 0.x.x。本项目遵循 [语义化版本 2.0](https://semver.org/lang/zh-CN/) 规范)
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/Ringaire/RingApp)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/Ringaire/Ring-App)
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-orange.svg)](LICENSE)
 
@@ -28,7 +28,7 @@ RingCLI 的桌面图形界面，以子进程方式驱动 AI 编程助手
 
 ## 前置要求
 
-- [RingCLI](https://github.com/Ringaire/RingCLI) 已安装并在 `$PATH` 中
+- [RingCLI](https://github.com/Ringaire/Ring-CLI) 已安装并在 `$PATH` 中
 - Node.js 18+ + pnpm
 - Rust 工具链（用于 Tauri）
 
@@ -36,7 +36,7 @@ RingCLI 的桌面图形界面，以子进程方式驱动 AI 编程助手
 
 ```bash
 # 克隆仓库
-git clone https://github.com/Ringaire/RingApp.git
+git clone https://github.com/Ringaire/Ring-App.git
 cd RingApp
 
 # 安装依赖并启动开发模式
@@ -82,8 +82,8 @@ pnpm build
 
 | 项目 | 说明 |
 |------|------|
-| [RingCLI](https://github.com/Ringaire/RingCLI) | 终端 AI 编程助手 |
-| [RingRCA](https://github.com/Ringaire/RingRCA) | 远程控制适配器网关 |
+| [RingCLI](https://github.com/Ringaire/Ring-CLI) | 终端 AI 编程助手 |
+| [RingRCA](https://github.com/Ringaire/Ring-RCA) | 远程控制适配器网关 |
 
 ## 许可证
 

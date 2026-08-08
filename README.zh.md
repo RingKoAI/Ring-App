@@ -6,7 +6,7 @@
 
 (Project in early stage. Version stays 0.x.x until first stable release. [Semantic Versioning 2.0](https://semver.org/))
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/Ringaire/RingApp)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/Ringaire/Ring-App)
 [![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-orange.svg)](LICENSE)
 
@@ -28,14 +28,14 @@ Desktop GUI for RingCLI — spawns the AI coding assistant as a subprocess.
 
 ## Prerequisites
 
-- [RingCLI](https://github.com/Ringaire/RingCLI) installed and in `$PATH`
+- [RingCLI](https://github.com/Ringaire/Ring-CLI) installed and in `$PATH`
 - Node.js 18+ + pnpm
 - Rust toolchain (for Tauri)
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/Ringaire/RingApp.git
+git clone https://github.com/Ringaire/Ring-App.git
 cd RingApp
 pnpm install
 pnpm tauri dev
@@ -76,8 +76,8 @@ pnpm build       # frontend only
 
 | Project | Description |
 |---------|-------------|
-| [RingCLI](https://github.com/Ringaire/RingCLI) | Terminal AI coding assistant |
-| [RingRCA](https://github.com/Ringaire/RingRCA) | Remote Control Adapter gateway |
+| [RingCLI](https://github.com/Ringaire/Ring-CLI) | Terminal AI coding assistant |
+| [RingRCA](https://github.com/Ringaire/Ring-RCA) | Remote Control Adapter gateway |
 
 ## License
 

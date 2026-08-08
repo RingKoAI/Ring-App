@@ -13,6 +13,7 @@ dist-ssr
 *.local
 .vite
 src-tauri/target
+src-tauri/binaries
 
 # Editor directories and files
 .vscode/*
