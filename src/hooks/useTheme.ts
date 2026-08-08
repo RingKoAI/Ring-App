@@ -2,12 +2,23 @@ import { useState, useEffect, useCallback } from "react"
 
 export type ThemeMode = "system" | "light" | "dark"
 
-const STORAGE_KEY = "ring-theme"
+/** Available accent colors — each maps to a `data-accent` attribute on <html>. */
+export type AccentColor = "blue" | "green" | "violet" | "rose" | "orange" | "cyan"
 
-function readStored(): ThemeMode {
+const MODE_KEY = "ring-theme"
+const ACCENT_KEY = "ring-accent"
+
+function readStoredMode(): ThemeMode {
   if (typeof localStorage === "undefined") return "system"
-  const v = localStorage.getItem(STORAGE_KEY)
+  const v = localStorage.getItem(MODE_KEY)
   return v === "light" || v === "dark" ? v : "system"
+}
+
+function readStoredAccent(): AccentColor {
+  if (typeof localStorage === "undefined") return "blue"
+  const v = localStorage.getItem(ACCENT_KEY)
+  const valid: AccentColor[] = ["blue", "green", "violet", "rose", "orange", "cyan"]
+  return valid.includes(v as AccentColor) ? (v as AccentColor) : "blue"
 }
 
 function systemPrefersDark(): boolean {
@@ -19,12 +30,21 @@ function applyClass(mode: ThemeMode) {
   document.documentElement.classList.toggle("dark", dark)
 }
 
+function applyAccent(accent: AccentColor) {
+  document.documentElement.setAttribute("data-accent", accent)
+}
+
 export function useTheme() {
-  const [mode, setMode] = useState<ThemeMode>(readStored)
+  const [mode, setMode] = useState<ThemeMode>(readStoredMode)
+  const [accent, setAccentState] = useState<AccentColor>(readStoredAccent)
 
   useEffect(() => {
     applyClass(mode)
   }, [mode])
+
+  useEffect(() => {
+    applyAccent(accent)
+  }, [accent])
 
   useEffect(() => {
     if (mode !== "system") return
@@ -35,13 +55,19 @@ export function useTheme() {
   }, [mode])
 
   const setTheme = useCallback((m: ThemeMode) => {
-    localStorage.setItem(STORAGE_KEY, m)
+    localStorage.setItem(MODE_KEY, m)
     setMode(m)
   }, [])
 
-  return { mode, setTheme }
+  const setAccent = useCallback((a: AccentColor) => {
+    localStorage.setItem(ACCENT_KEY, a)
+    setAccentState(a)
+  }, [])
+
+  return { mode, setTheme, accent, setAccent }
 }
 
 export function initTheme() {
-  applyClass(readStored())
+  applyClass(readStoredMode())
+  applyAccent(readStoredAccent())
 }
